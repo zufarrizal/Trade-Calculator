@@ -1,0 +1,193 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Advanced Trading Lot Calculator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <section class="hero">
+      <p class="eyebrow">Trade Calculator</p>
+      <h1>Multi-Asset Lot Size Calculator</h1>
+      <p class="subtitle">Calculate lot size from risk settings, trading costs, margin, and account-currency conversion automatically.</p>
+    </section>
+
+    <section class="grid-layout">
+      <article class="panel">
+        <h2>1) Account Settings</h2>
+        <div class="form-grid">
+          <label>
+            Account Balance
+            <input type="number" id="accountBalance" min="0" step="0.01" value="1000" />
+          </label>
+
+          <label>
+            Account Currency
+            <select id="accountCurrency"></select>
+          </label>
+
+          <fieldset>
+            <legend>Risk Mode</legend>
+            <div class="inline-fields">
+              <label><input type="radio" name="riskMode" value="percent" checked /> Percent (%)</label>
+              <label><input type="radio" name="riskMode" value="fixed" /> Fixed Amount</label>
+            </div>
+          </fieldset>
+
+          <label>
+            Risk (%)
+            <input type="number" id="riskPercent" min="0.01" max="100" step="0.01" value="1" />
+          </label>
+
+          <label>
+            Fixed Risk Amount
+            <input type="number" id="riskFixed" min="0.01" step="0.01" value="10" disabled />
+          </label>
+
+          <label>
+            Leverage
+            <input type="number" id="leverage" min="1" step="1" value="100" />
+          </label>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h2>2) Instrument & Trade Setup</h2>
+        <div class="form-grid">
+          <label class="wide">
+            Pair / Instrument
+            <select id="instrument"></select>
+          </label>
+
+          <label>
+            Trade Direction
+            <select id="direction">
+              <option value="buy">Buy</option>
+              <option value="sell">Sell</option>
+            </select>
+          </label>
+
+          <label>
+            Current Price
+            <input type="number" id="currentPrice" min="0" step="0.00001" value="1.08" />
+          </label>
+
+          <div class="price-tools">
+            <label class="inline-check"><input type="checkbox" id="autoPriceEnabled" checked /> Auto-detect live price</label>
+            <button id="refreshPrice" class="button button-secondary" type="button">Refresh Price</button>
+          </div>
+
+          <p id="priceStatus" class="small-text status-line">Price status: waiting for update.</p>
+
+          <label>
+            Entry Price
+            <input type="number" id="entryPrice" min="0" step="0.00001" value="1.08" />
+          </label>
+
+          <label>
+            Stop Loss Price
+            <input type="number" id="stopLossPrice" min="0" step="0.00001" value="1.075" />
+          </label>
+
+          <label>
+            Take Profit Price
+            <input type="number" id="takeProfitPrice" min="0" step="0.00001" value="1.09" />
+          </label>
+
+          <fieldset class="wide">
+            <legend>Stop Loss Method</legend>
+            <div class="inline-fields">
+              <label><input type="radio" name="stopMode" value="auto" checked /> Automatic from price difference</label>
+              <label><input type="radio" name="stopMode" value="manual" /> Manual (pips/points)</label>
+            </div>
+          </fieldset>
+
+          <label class="wide">
+            Manual Stop Loss (pips/points)
+            <input type="number" id="manualStop" min="0.1" step="0.1" value="50" disabled />
+          </label>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h2>3) Trading Costs</h2>
+        <div class="form-grid">
+          <label>
+            Spread (pips/points)
+            <input type="number" id="spread" min="0" step="0.1" value="1.2" />
+          </label>
+
+          <label>
+            Slippage (pips/points)
+            <input type="number" id="slippage" min="0" step="0.1" value="0.3" />
+          </label>
+
+          <label>
+            Commission per Lot (round-turn)
+            <input type="number" id="commission" min="0" step="0.01" value="7" />
+          </label>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h2>4) Currency Conversion</h2>
+        <p class="small-text">If an instrument quote currency is different from your account currency, conversion is calculated automatically. You can also add manual rates.</p>
+
+        <div class="form-grid">
+          <label>
+            Quote -> Account Conversion
+            <input type="text" id="conversionDisplay" readonly value="-" />
+          </label>
+
+          <label>
+            From (CCY)
+            <input type="text" id="rateFrom" maxlength="3" placeholder="USD" />
+          </label>
+
+          <label>
+            To (CCY)
+            <input type="text" id="rateTo" maxlength="3" placeholder="IDR" />
+          </label>
+
+          <label>
+            Value (1 From = ? To)
+            <input type="number" id="rateValue" min="0.0000001" step="0.0000001" placeholder="16500" />
+          </label>
+
+          <button id="addRate" class="button" type="button">Add Manual Rate</button>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>From</th>
+                <th>To</th>
+                <th>Value</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="manualRatesBody">
+              <tr><td colspan="4" class="muted">No manual rates yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="panel full">
+        <h2>Calculation Results</h2>
+        <p class="small-text">All monetary values below are displayed in your selected account currency.</p>
+        <div id="alerts" class="alerts"></div>
+        <div class="result-grid" id="resultGrid"></div>
+      </article>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
