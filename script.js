@@ -1,4 +1,4 @@
-﻿const instruments = [
+const instruments = [
   { symbol: "EURUSD", name: "Euro / US Dollar", group: "Forex Major", type: "forex", base: "EUR", quote: "USD", contractSize: 100000, pipSize: 0.0001, minLot: 0.01, maxLot: 100, lotStep: 0.01 },
   { symbol: "GBPUSD", name: "British Pound / US Dollar", group: "Forex Major", type: "forex", base: "GBP", quote: "USD", contractSize: 100000, pipSize: 0.0001, minLot: 0.01, maxLot: 100, lotStep: 0.01 },
   { symbol: "AUDUSD", name: "Australian Dollar / US Dollar", group: "Forex Major", type: "forex", base: "AUD", quote: "USD", contractSize: 100000, pipSize: 0.0001, minLot: 0.01, maxLot: 100, lotStep: 0.01 },
@@ -75,12 +75,14 @@ const stooqSymbolCandidates = {
 };
 
 const state = {
-  manualRates: [],
   marketRates: {},
+  history: [],
   fiatUsdRates: null,
   fiatUpdatedAt: 0,
   priceFetchToken: 0,
-  isFetchingPrice: false
+  isFetchingPrice: false,
+  isSyncingDerivedFields: false,
+  lastHistoryKey: ""
 };
 
 const form = {
@@ -97,19 +99,38 @@ const form = {
   priceStatus: document.getElementById("priceStatus"),
   entryPrice: document.getElementById("entryPrice"),
   stopLossPrice: document.getElementById("stopLossPrice"),
+  method: document.getElementById("method"),
   takeProfitPrice: document.getElementById("takeProfitPrice"),
-  manualStop: document.getElementById("manualStop"),
+  tpTargetMode: document.getElementById("tpTargetMode"),
+  targetRiskReward: document.getElementById("targetRiskReward"),
+  takeProfitDistance: document.getElementById("takeProfitDistance"),
+  stopLossDistance: document.getElementById("stopLossDistance"),
   spread: document.getElementById("spread"),
   slippage: document.getElementById("slippage"),
   commission: document.getElementById("commission"),
-  conversionDisplay: document.getElementById("conversionDisplay"),
-  rateFrom: document.getElementById("rateFrom"),
-  rateTo: document.getElementById("rateTo"),
-  rateValue: document.getElementById("rateValue"),
-  addRate: document.getElementById("addRate"),
-  manualRatesBody: document.getElementById("manualRatesBody"),
+  commissionMode: document.getElementById("commissionMode"),
+  swapPerLot: document.getElementById("swapPerLot"),
+  presetScalp: document.getElementById("presetScalp"),
+  presetSwing: document.getElementById("presetSwing"),
+  resetForm: document.getElementById("resetForm"),
+  historyBody: document.getElementById("historyBody"),
   resultGrid: document.getElementById("resultGrid"),
-  alerts: document.getElementById("alerts")
+  alerts: document.getElementById("alerts"),
+  fieldErrors: document.getElementById("fieldErrors"),
+  riskBadge: document.getElementById("riskBadge")
+};
+
+const ui = {
+  stopLossPriceWrap: document.getElementById("stopLossPriceWrap"),
+  stopLossPriceLabel: document.getElementById("stopLossPriceLabel"),
+  stopLossDistanceWrap: document.getElementById("stopLossDistanceWrap"),
+  stopLossDistanceLabel: document.getElementById("stopLossDistanceLabel"),
+  takeProfitPriceWrap: document.getElementById("takeProfitPriceWrap"),
+  takeProfitPriceLabel: document.getElementById("takeProfitPriceLabel"),
+  takeProfitDistanceWrap: document.getElementById("takeProfitDistanceWrap"),
+  takeProfitDistanceLabel: document.getElementById("takeProfitDistanceLabel"),
+  tpAutoInfo: document.getElementById("tpAutoInfo"),
+  slAutoInfo: document.getElementById("slAutoInfo")
 };
 
 function numberFrom(el) {
@@ -178,10 +199,273 @@ function populateInstruments() {
 
 function updateFieldStates() {
   const riskMode = document.querySelector("input[name='riskMode']:checked").value;
-  const stopMode = document.querySelector("input[name='stopMode']:checked").value;
+  const method = form.method.value;
+  const tpMode = method;
+  const tpTargetMode = form.tpTargetMode.value;
+  const targetRiskRewardWrap = form.targetRiskReward.closest("label");
+
   form.riskPercent.disabled = riskMode !== "percent";
   form.riskFixed.disabled = riskMode !== "fixed";
-  form.manualStop.disabled = stopMode !== "manual";
+  form.stopLossDistance.disabled = method === "price";
+  form.takeProfitDistance.disabled = tpMode === "price";
+  form.takeProfitPrice.disabled = tpMode !== "price";
+  form.targetRiskReward.disabled = false;
+
+  ui.stopLossPriceLabel.textContent = "Stop Loss Price";
+  ui.stopLossDistanceLabel.textContent = method === "pip" ? "Stop Loss (pips)" : "Stop Loss (points)";
+  ui.stopLossPriceWrap.style.display = method === "price" ? "" : "none";
+  ui.stopLossDistanceWrap.style.display = method === "price" ? "none" : "";
+  ui.slAutoInfo.style.display = method === "price" ? "none" : "";
+
+  if (targetRiskRewardWrap) targetRiskRewardWrap.style.display = tpTargetMode === "rr" ? "" : "none";
+
+  if (tpTargetMode === "rr") {
+    ui.takeProfitDistanceWrap.style.display = "none";
+    ui.takeProfitPriceWrap.style.display = "none";
+    ui.tpAutoInfo.style.display = "";
+    form.takeProfitPrice.disabled = true;
+  } else {
+    ui.tpAutoInfo.style.display = tpMode === "price" ? "none" : "";
+    ui.takeProfitPriceLabel.textContent = "Take Profit Price";
+    ui.takeProfitDistanceLabel.textContent = tpMode === "pip" ? "Take Profit (pips)" : "Take Profit (points)";
+    ui.takeProfitPriceWrap.style.display = tpMode === "price" ? "" : "none";
+    ui.takeProfitDistanceWrap.style.display = tpMode === "price" ? "none" : "";
+  }
+}
+
+function getPriceDigits(instrument) {
+  const pipDecimals = String(instrument.pipSize).split(".")[1]?.length || 0;
+  return instrument.pipSize >= 1 ? 2 : Math.min(8, Math.max(2, pipDecimals + 2));
+}
+
+function setNumberValue(el, value, digits) {
+  if (!Number.isFinite(value)) return;
+  el.value = Number(value.toFixed(digits));
+}
+
+function getSnapshot() {
+  const riskMode = document.querySelector("input[name='riskMode']:checked").value;
+  return {
+    accountBalance: form.accountBalance.value,
+    accountCurrency: form.accountCurrency.value,
+    riskMode,
+    riskPercent: form.riskPercent.value,
+    riskFixed: form.riskFixed.value,
+    leverage: form.leverage.value,
+    instrument: form.instrument.value,
+    direction: form.direction.value,
+    currentPrice: form.currentPrice.value,
+    autoPriceEnabled: form.autoPriceEnabled.checked,
+    entryPrice: form.entryPrice.value,
+    stopLossPrice: form.stopLossPrice.value,
+    method: form.method.value,
+    takeProfitPrice: form.takeProfitPrice.value,
+    tpTargetMode: form.tpTargetMode.value,
+    targetRiskReward: form.targetRiskReward.value,
+    takeProfitDistance: form.takeProfitDistance.value,
+    stopLossDistance: form.stopLossDistance.value,
+    spread: form.spread.value,
+    slippage: form.slippage.value,
+    commission: form.commission.value,
+    commissionMode: form.commissionMode.value,
+    swapPerLot: form.swapPerLot.value
+  };
+}
+
+function applySnapshot(snapshot) {
+  if (!snapshot) return;
+  form.accountBalance.value = snapshot.accountBalance ?? form.accountBalance.value;
+  form.accountCurrency.value = snapshot.accountCurrency ?? form.accountCurrency.value;
+  const riskMode = snapshot.riskMode === "fixed" ? "fixed" : "percent";
+  const riskRadio = document.querySelector(`input[name='riskMode'][value='${riskMode}']`);
+  if (riskRadio) riskRadio.checked = true;
+  form.riskPercent.value = snapshot.riskPercent ?? form.riskPercent.value;
+  form.riskFixed.value = snapshot.riskFixed ?? form.riskFixed.value;
+  form.leverage.value = snapshot.leverage ?? form.leverage.value;
+  form.instrument.value = snapshot.instrument ?? form.instrument.value;
+  form.direction.value = snapshot.direction ?? form.direction.value;
+  form.currentPrice.value = snapshot.currentPrice ?? form.currentPrice.value;
+  form.autoPriceEnabled.checked = Boolean(snapshot.autoPriceEnabled);
+  form.entryPrice.value = snapshot.entryPrice ?? form.entryPrice.value;
+  form.stopLossPrice.value = snapshot.stopLossPrice ?? form.stopLossPrice.value;
+  form.method.value = snapshot.method ?? form.method.value;
+  form.takeProfitPrice.value = snapshot.takeProfitPrice ?? form.takeProfitPrice.value;
+  form.tpTargetMode.value = snapshot.tpTargetMode ?? form.tpTargetMode.value;
+  form.targetRiskReward.value = snapshot.targetRiskReward ?? form.targetRiskReward.value;
+  form.takeProfitDistance.value = snapshot.takeProfitDistance ?? form.takeProfitDistance.value;
+  form.stopLossDistance.value = snapshot.stopLossDistance ?? form.stopLossDistance.value;
+  form.spread.value = snapshot.spread ?? form.spread.value;
+  form.slippage.value = snapshot.slippage ?? form.slippage.value;
+  form.commission.value = snapshot.commission ?? form.commission.value;
+  form.commissionMode.value = snapshot.commissionMode ?? form.commissionMode.value;
+  form.swapPerLot.value = snapshot.swapPerLot ?? form.swapPerLot.value;
+}
+
+function syncDerivedFields() {
+  if (state.isSyncingDerivedFields) return;
+  state.isSyncingDerivedFields = true;
+
+  try {
+    const instrument = getSelectedInstrument();
+    const digits = getPriceDigits(instrument);
+    const entry = numberFrom(form.entryPrice);
+    if (!(entry > 0)) return;
+
+    const slMode = form.method.value;
+    const tpMode = slMode;
+    const direction = form.direction.value;
+    const slPoints = numberFrom(form.stopLossDistance);
+    const tpPoints = numberFrom(form.takeProfitDistance);
+    const targetRiskReward = numberFrom(form.targetRiskReward);
+
+    if (slMode !== "price" && slPoints > 0) {
+      const slPrice = direction === "buy"
+        ? entry - slPoints * instrument.pipSize
+        : entry + slPoints * instrument.pipSize;
+      setNumberValue(form.stopLossPrice, slPrice, digits);
+    } else if (slMode === "price") {
+      const stop = numberFrom(form.stopLossPrice);
+      if (stop > 0) {
+        form.stopLossDistance.value = Number((Math.abs(entry - stop) / instrument.pipSize).toFixed(2));
+      }
+    }
+
+    let effectiveTpPoints = tpPoints;
+    if (form.tpTargetMode.value === "rr" && targetRiskReward > 0) {
+      effectiveTpPoints = slPoints > 0 ? slPoints * targetRiskReward : 0;
+      if (effectiveTpPoints > 0) {
+        form.takeProfitDistance.value = Number(effectiveTpPoints.toFixed(2));
+      }
+    }
+
+    if (tpMode !== "price" && effectiveTpPoints > 0) {
+      const tpPrice = direction === "buy"
+        ? entry + effectiveTpPoints * instrument.pipSize
+        : entry - effectiveTpPoints * instrument.pipSize;
+      setNumberValue(form.takeProfitPrice, tpPrice, digits);
+    } else if (tpMode === "price") {
+      const tp = numberFrom(form.takeProfitPrice);
+      if (tp > 0) {
+        form.takeProfitDistance.value = Number((Math.abs(tp - entry) / instrument.pipSize).toFixed(2));
+      }
+    }
+
+    const slInfo = slMode === "price"
+      ? `${Number((Math.abs(entry - numberFrom(form.stopLossPrice)) / instrument.pipSize).toFixed(2))} ${form.method.value}`
+      : `${numberFrom(form.stopLossDistance)} ${form.method.value}`;
+    const tpPriceNow = numberFrom(form.takeProfitPrice);
+    const tpInfo = effectiveTpPoints > 0 && tpPriceNow > 0
+      ? `${Number(effectiveTpPoints.toFixed(2))} points | price ${tpPriceNow}`
+      : "-";
+    ui.tpAutoInfo.textContent = `TP auto from RR: ${tpInfo} | SL basis: ${slInfo}`;
+
+    const stopPriceNow = numberFrom(form.stopLossPrice);
+    if (slMode !== "price") {
+      ui.slAutoInfo.textContent = stopPriceNow > 0 ? `SL price: ${stopPriceNow}` : "SL price: -";
+    }
+    if (form.tpTargetMode.value !== "rr" && tpMode !== "price") {
+      ui.tpAutoInfo.textContent = tpPriceNow > 0 ? `TP price: ${tpPriceNow}` : "TP price: -";
+    }
+  } finally {
+    state.isSyncingDerivedFields = false;
+  }
+}
+
+function saveLocalState() {
+  const payload = {
+    snapshot: getSnapshot(),
+    history: state.history
+  };
+  localStorage.setItem("trade-calculator-v2", JSON.stringify(payload));
+}
+
+function loadLocalState() {
+  try {
+    const raw = localStorage.getItem("trade-calculator-v2");
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    applySnapshot(parsed.snapshot);
+    state.history = Array.isArray(parsed.history) ? parsed.history.slice(0, 15) : [];
+  } catch (error) {
+    state.history = [];
+  }
+}
+
+function renderFieldErrors(errors) {
+  if (!errors.length) {
+    form.fieldErrors.innerHTML = "";
+    return;
+  }
+  form.fieldErrors.innerHTML = errors.map((msg) => `<div class="field-error-item">${msg}</div>`).join("");
+}
+
+function renderRiskBadge({ marginPct, riskDiffPct }) {
+  let tone = "safe";
+  let message = "Status: Safe setup.";
+  if (marginPct > 90 || riskDiffPct > 20) {
+    tone = "over-risk";
+    message = "Status: Over-risk. Kurangi lot, biaya, atau gunakan leverage lebih kecil.";
+  } else if (marginPct > 60 || riskDiffPct > 10) {
+    tone = "caution";
+    message = "Status: Caution. Perhatikan margin dan deviasi risiko dari target.";
+  }
+  form.riskBadge.className = `risk-badge ${tone}`;
+  form.riskBadge.textContent = `${message} (Margin ${fmt(marginPct, 2)}%, deviasi risiko ${fmt(riskDiffPct, 2)}%)`;
+}
+
+function pushHistory(entry) {
+  state.history.unshift(entry);
+  if (state.history.length > 15) state.history = state.history.slice(0, 15);
+}
+
+function renderHistory() {
+  if (!state.history.length) {
+    form.historyBody.innerHTML = '<tr><td colspan="4" class="muted">No history yet.</td></tr>';
+    return;
+  }
+  form.historyBody.innerHTML = state.history
+    .map((row, index) => `
+      <tr>
+        <td>${row.time}</td>
+        <td>${row.instrument}</td>
+        <td>${fmt(row.lot, 4)}</td>
+        <td><button type="button" class="mini-btn" data-load-history="${index}">Load</button></td>
+      </tr>
+    `)
+    .join("");
+}
+
+function applyPresetScalp() {
+  form.method.value = "pip";
+  form.tpTargetMode.value = "rr";
+  form.targetRiskReward.value = "1.5";
+  form.stopLossDistance.value = "15";
+  form.takeProfitDistance.value = "22.5";
+  form.spread.value = "0.8";
+  form.slippage.value = "0.2";
+  form.commission.value = "7";
+  form.commissionMode.value = "roundTurn";
+  form.swapPerLot.value = "0";
+  calculate();
+}
+
+function applyPresetSwing() {
+  form.method.value = "pip";
+  form.tpTargetMode.value = "rr";
+  form.targetRiskReward.value = "2.5";
+  form.stopLossDistance.value = "80";
+  form.takeProfitDistance.value = "200";
+  form.spread.value = "1.4";
+  form.slippage.value = "0.4";
+  form.commission.value = "7";
+  form.commissionMode.value = "roundTurn";
+  form.swapPerLot.value = "0.5";
+  calculate();
+}
+
+function resetToDefault() {
+  localStorage.removeItem("trade-calculator-v2");
+  location.reload();
 }
 
 function updatePriceStep() {
@@ -191,53 +475,6 @@ function updatePriceStep() {
   [form.currentPrice, form.entryPrice, form.stopLossPrice, form.takeProfitPrice].forEach((el) => {
     el.step = priceStep;
   });
-}
-
-function addManualRate() {
-  const from = form.rateFrom.value.trim().toUpperCase();
-  const to = form.rateTo.value.trim().toUpperCase();
-  const value = Number(form.rateValue.value);
-
-  if (from.length !== 3 || to.length !== 3 || !Number.isFinite(value) || value <= 0) {
-    return;
-  }
-
-  const existing = state.manualRates.find((item) => item.from === from && item.to === to);
-  if (existing) {
-    existing.rate = value;
-  } else {
-    state.manualRates.push({ from, to, rate: value });
-  }
-
-  form.rateFrom.value = "";
-  form.rateTo.value = "";
-  form.rateValue.value = "";
-  renderManualRates();
-  calculate();
-}
-
-function removeManualRate(index) {
-  state.manualRates.splice(index, 1);
-  renderManualRates();
-  calculate();
-}
-
-function renderManualRates() {
-  if (!state.manualRates.length) {
-    form.manualRatesBody.innerHTML = '<tr><td colspan="4" class="muted">No manual rates yet.</td></tr>';
-    return;
-  }
-
-  form.manualRatesBody.innerHTML = state.manualRates
-    .map((row, index) => `
-      <tr>
-        <td>${row.from}</td>
-        <td>${row.to}</td>
-        <td>${fmtRate(row.rate)}</td>
-        <td><button type="button" class="mini-btn" data-remove-rate="${index}">Remove</button></td>
-      </tr>
-    `)
-    .join("");
 }
 
 function buildCurrencyGraph() {
@@ -260,11 +497,6 @@ function buildCurrencyGraph() {
     if (!ins || !(price > 0)) return;
     addEdge(ins.base, ins.quote, price);
     addEdge(ins.quote, ins.base, 1 / price);
-  });
-
-  state.manualRates.forEach((item) => {
-    addEdge(item.from, item.to, item.rate);
-    addEdge(item.to, item.from, 1 / item.rate);
   });
 
   return graph;
@@ -493,46 +725,68 @@ async function autoFillCurrentPrice({ force = false, reason = "manual" } = {}) {
 function calculate() {
   updateFieldStates();
   updatePriceStep();
+  syncDerivedFields();
 
   const alerts = [];
+  const fieldErrors = [];
   const instrument = getSelectedInstrument();
   const accountBalance = numberFrom(form.accountBalance);
   const leverage = numberFrom(form.leverage);
   const spread = numberFrom(form.spread);
   const slippage = numberFrom(form.slippage);
   const commission = numberFrom(form.commission);
+  const swapPerLot = numberFrom(form.swapPerLot);
   const price = numberFrom(form.currentPrice);
   const entry = numberFrom(form.entryPrice);
   const stop = numberFrom(form.stopLossPrice);
   const tp = numberFrom(form.takeProfitPrice);
   const accountCurrency = form.accountCurrency.value;
   const direction = form.direction.value;
+  const tpTargetMode = form.tpTargetMode.value;
+  const targetRiskReward = numberFrom(form.targetRiskReward);
+  const commissionMode = form.commissionMode.value;
 
   const riskMode = document.querySelector("input[name='riskMode']:checked").value;
-  const stopMode = document.querySelector("input[name='stopMode']:checked").value;
+  const method = form.method.value;
+  const tpMode = method;
 
   const riskAmount = riskMode === "percent"
     ? accountBalance * (numberFrom(form.riskPercent) / 100)
     : numberFrom(form.riskFixed);
 
-  const slPoints = stopMode === "manual"
-    ? numberFrom(form.manualStop)
-    : Math.abs(entry - stop) / instrument.pipSize;
+  const slPoints = method === "price"
+    ? (entry > 0 && stop > 0 ? Math.abs(entry - stop) / instrument.pipSize : 0)
+    : numberFrom(form.stopLossDistance);
 
-  const tpPoints = entry > 0 && tp > 0 ? Math.abs(tp - entry) / instrument.pipSize : 0;
+  const tpPoints = tpMode === "price"
+    ? (entry > 0 && tp > 0 ? Math.abs(tp - entry) / instrument.pipSize : 0)
+    : numberFrom(form.takeProfitDistance);
 
-  if (!(accountBalance > 0)) alerts.push({ level: "error", message: "Account balance must be greater than 0." });
-  if (!(riskAmount > 0)) alerts.push({ level: "error", message: "Risk value must be greater than 0." });
-  if (!(slPoints > 0)) alerts.push({ level: "error", message: "Stop loss is not valid. Fill SL price or manual stop points." });
-  if (!(price > 0)) alerts.push({ level: "error", message: "Current price must be greater than 0." });
-  if (!(leverage > 0)) alerts.push({ level: "error", message: "Leverage must be greater than 0." });
+  if (!(accountBalance > 0)) fieldErrors.push("Account balance harus lebih besar dari 0.");
+  if (!(riskAmount > 0)) fieldErrors.push("Risk value harus lebih besar dari 0.");
+  if (!(entry > 0)) fieldErrors.push("Entry price harus lebih besar dari 0.");
+  if (!(slPoints > 0)) fieldErrors.push("Stop loss tidak valid. Isi SL price atau manual SL pip/points.");
+  if (!(tpPoints > 0)) fieldErrors.push("Take profit tidak valid. Isi TP price atau manual TP pip/points.");
+  if (!(price > 0)) fieldErrors.push("Current price harus lebih besar dari 0.");
+  if (!(leverage > 0)) fieldErrors.push("Leverage harus lebih besar dari 0.");
+  if (tpTargetMode === "rr" && !(targetRiskReward > 0)) fieldErrors.push("Target RR harus lebih besar dari 0 saat mode RR aktif.");
+  if (spread < 0 || slippage < 0) fieldErrors.push("Spread dan slippage tidak boleh negatif.");
+  if (commission < 0) fieldErrors.push("Commission tidak boleh negatif.");
 
-  if (direction === "buy" && stopMode === "auto" && stop >= entry && entry > 0 && stop > 0) {
+  if (direction === "buy" && method === "price" && stop >= entry && entry > 0 && stop > 0) {
     alerts.push({ level: "warning", message: "For Buy positions, stop loss is usually below entry." });
   }
 
-  if (direction === "sell" && stopMode === "auto" && stop <= entry && entry > 0 && stop > 0) {
+  if (direction === "sell" && method === "price" && stop <= entry && entry > 0 && stop > 0) {
     alerts.push({ level: "warning", message: "For Sell positions, stop loss is usually above entry." });
+  }
+
+  if (tpMode === "price" && direction === "buy" && tp <= entry && entry > 0 && tp > 0) {
+    alerts.push({ level: "warning", message: "For Buy positions, take profit is usually above entry." });
+  }
+
+  if (tpMode === "price" && direction === "sell" && tp >= entry && entry > 0 && tp > 0) {
+    alerts.push({ level: "warning", message: "For Sell positions, take profit is usually below entry." });
   }
 
   const graph = buildCurrencyGraph();
@@ -545,13 +799,13 @@ function calculate() {
   }
 
   const conversion = quoteToAccount ?? Number.NaN;
-  form.conversionDisplay.value = quoteToAccount ? `1 ${instrument.quote} = ${fmtRate(quoteToAccount)} ${accountCurrency}` : "Not found";
 
   const pipValueQuotePerLot = instrument.contractSize * instrument.pipSize;
   const pipValueAccountPerLot = pipValueQuotePerLot * conversion;
 
   const effectiveStop = slPoints + spread + slippage;
-  const perLotRisk = effectiveStop * pipValueAccountPerLot + commission;
+  const commissionRoundTurn = commissionMode === "perSide" ? commission * 2 : commission;
+  const perLotRisk = effectiveStop * pipValueAccountPerLot + commissionRoundTurn + swapPerLot;
 
   let rawLot = perLotRisk > 0 ? riskAmount / perLotRisk : 0;
   if (!Number.isFinite(rawLot)) rawLot = 0;
@@ -573,8 +827,9 @@ function calculate() {
   const marginAccount = leverage > 0 ? notionalAccount / leverage : 0;
   const marginPct = accountBalance > 0 ? (marginAccount / accountBalance) * 100 : 0;
 
-  const potentialProfit = lot * (tpPoints * pipValueAccountPerLot - commission);
+  const potentialProfit = lot * (tpPoints * pipValueAccountPerLot - commissionRoundTurn - swapPerLot);
   const rr = effectiveStop > 0 ? tpPoints / effectiveStop : 0;
+  const riskDiffPct = riskAmount > 0 ? Math.abs((actualRisk - riskAmount) / riskAmount) * 100 : 0;
 
   if (marginAccount > accountBalance) {
     alerts.push({
@@ -584,6 +839,8 @@ function calculate() {
   }
 
   renderAlerts(alerts);
+  renderFieldErrors(fieldErrors);
+  renderRiskBadge({ marginPct, riskDiffPct });
 
   const cards = [
     {
@@ -609,7 +866,7 @@ function calculate() {
     {
       label: "Estimated Loss at Stop Loss",
       value: `${fmt(actualRisk, 2)} ${accountCurrency}`,
-      sub: `Pure SL: ${fmt(lot * slPoints * pipValueAccountPerLot, 2)} ${accountCurrency} | Costs: ${fmt(lot * (spread + slippage) * pipValueAccountPerLot + lot * commission, 2)} ${accountCurrency}`
+      sub: `Pure SL: ${fmt(lot * slPoints * pipValueAccountPerLot, 2)} ${accountCurrency} | Costs: ${fmt(lot * (spread + slippage) * pipValueAccountPerLot + lot * (commissionRoundTurn + swapPerLot), 2)} ${accountCurrency}`
     },
     {
       label: "Total Stop Distance",
@@ -619,7 +876,7 @@ function calculate() {
     {
       label: "Potential Profit (at TP)",
       value: `${fmt(potentialProfit, 2)} ${accountCurrency}`,
-      sub: `TP: ${fmt(tpPoints, 2)} pips/points | RR: ${fmt(rr, 2)} : 1`,
+      sub: `TP: ${fmt(tpPoints, 2)} pips/points | RR: ${fmt(rr, 2)} : 1${tpTargetMode === "rr" ? ` | Target RR: ${fmt(targetRiskReward, 2)}` : ""}`,
       tone: potentialProfit >= 0 ? "positive" : "negative"
     },
     {
@@ -635,6 +892,23 @@ function calculate() {
   ];
 
   renderResults(cards);
+  renderHistory();
+
+  const historyKey = `${instrument.symbol}|${direction}|${fmt(lot, 4)}|${fmt(actualRisk, 2)}|${fmt(rr, 2)}`;
+  if (!fieldErrors.length && lot > 0 && historyKey !== state.lastHistoryKey) {
+    state.lastHistoryKey = historyKey;
+    pushHistory({
+      time: new Date().toLocaleTimeString("en-GB", { hour12: false }),
+      instrument: instrument.symbol,
+      direction,
+      lot,
+      risk: actualRisk,
+      rr,
+      snapshot: getSnapshot()
+    });
+    renderHistory();
+  }
+  saveLocalState();
 }
 
 function bindEvents() {
@@ -650,10 +924,16 @@ function bindEvents() {
     form.entryPrice,
     form.stopLossPrice,
     form.takeProfitPrice,
-    form.manualStop,
+    form.method,
+    form.tpTargetMode,
+    form.targetRiskReward,
+    form.takeProfitDistance,
+    form.stopLossDistance,
     form.spread,
     form.slippage,
-    form.commission
+    form.commission,
+    form.commissionMode,
+    form.swapPerLot
   ];
 
   recalculableFields.forEach((field) => {
@@ -666,7 +946,7 @@ function bindEvents() {
     autoFillCurrentPrice({ reason: "instrument-change" });
   });
 
-  document.querySelectorAll("input[name='riskMode'], input[name='stopMode']").forEach((el) => {
+  document.querySelectorAll("input[name='riskMode']").forEach((el) => {
     el.addEventListener("change", calculate);
   });
 
@@ -682,20 +962,34 @@ function bindEvents() {
     autoFillCurrentPrice({ force: true, reason: "refresh-button" });
   });
 
-  form.addRate.addEventListener("click", addManualRate);
-  form.manualRatesBody.addEventListener("click", (event) => {
+  form.historyBody.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
-    const index = target.getAttribute("data-remove-rate");
+    const index = target.getAttribute("data-load-history");
     if (index === null) return;
-    removeManualRate(Number(index));
+    const row = state.history[Number(index)];
+    if (!row?.snapshot) return;
+    applySnapshot(row.snapshot);
+    calculate();
   });
+
+  form.tpTargetMode.addEventListener("change", () => {
+    if (form.tpTargetMode.value === "rr") {
+      form.targetRiskReward.focus();
+      form.targetRiskReward.select();
+    }
+  });
+
+  form.presetScalp.addEventListener("click", applyPresetScalp);
+  form.presetSwing.addEventListener("click", applyPresetSwing);
+  form.resetForm.addEventListener("click", resetToDefault);
 }
 
 async function init() {
   populateCurrencies();
   populateInstruments();
-  renderManualRates();
+  loadLocalState();
+  renderHistory();
   bindEvents();
   calculate();
 
@@ -709,3 +1003,4 @@ async function init() {
 }
 
 init();
+

@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -18,6 +18,7 @@
     </section>
 
     <section class="grid-layout">
+      <div class="stack-col">
       <article class="panel">
         <h2>1) Account Settings</h2>
         <div class="form-grid">
@@ -55,7 +56,41 @@
           </label>
         </div>
       </article>
+      <article class="panel">
+        <h2>3) Trading Costs</h2>
+        <div class="form-grid">
+          <label>
+            Spread (pips/points)
+            <input type="number" id="spread" min="0" step="0.1" value="1.2" />
+          </label>
 
+          <label>
+            Slippage (pips/points)
+            <input type="number" id="slippage" min="0" step="0.1" value="0.3" />
+          </label>
+
+          <label>
+            Commission
+            <input type="number" id="commission" min="0" step="0.01" value="7" />
+          </label>
+
+          <label>
+            Commission Mode
+            <select id="commissionMode">
+              <option value="roundTurn" selected>Per Lot (Round-turn)</option>
+              <option value="perSide">Per Lot (Per Side)</option>
+            </select>
+          </label>
+
+          <label>
+            Swap / Overnight (per lot)
+            <input type="number" id="swapPerLot" step="0.01" value="0" />
+          </label>
+        </div>
+      </article>
+      </div>
+
+      <div class="stack-col">
       <article class="panel">
         <h2>2) Instrument & Trade Setup</h2>
         <div class="form-grid">
@@ -89,101 +124,88 @@
             <input type="number" id="entryPrice" min="0" step="0.00001" value="1.08" />
           </label>
 
-          <label>
-            Stop Loss Price
+          <label id="stopLossPriceWrap">
+            <span id="stopLossPriceLabel">Stop Loss Price</span>
             <input type="number" id="stopLossPrice" min="0" step="0.00001" value="1.075" />
           </label>
 
           <label>
-            Take Profit Price
+            Method
+            <select id="method">
+              <option value="price" selected>Price</option>
+              <option value="pip">Pip</option>
+              <option value="points">Points</option>
+            </select>
+          </label>
+
+          <label id="takeProfitPriceWrap">
+            <span id="takeProfitPriceLabel">Take Profit Price</span>
             <input type="number" id="takeProfitPrice" min="0" step="0.00001" value="1.09" />
           </label>
 
-          <fieldset class="wide">
-            <legend>Stop Loss Method</legend>
-            <div class="inline-fields">
-              <label><input type="radio" name="stopMode" value="auto" checked /> Automatic from price difference</label>
-              <label><input type="radio" name="stopMode" value="manual" /> Manual (pips/points)</label>
-            </div>
-          </fieldset>
-
-          <label class="wide">
-            Manual Stop Loss (pips/points)
-            <input type="number" id="manualStop" min="0.1" step="0.1" value="50" disabled />
+          <label>
+            TP Target Mode
+            <select id="tpTargetMode">
+              <option value="manual" selected>Manual</option>
+              <option value="rr">Risk:Reward</option>
+            </select>
           </label>
+
+          <label>
+            Target RR (if RR mode)
+            <input type="number" id="targetRiskReward" min="0.1" step="0.1" value="2" />
+          </label>
+
+          <label class="wide" id="takeProfitDistanceWrap" style="display:none;">
+            <span id="takeProfitDistanceLabel">Manual Take Profit (pips/points)</span>
+            <input type="number" id="takeProfitDistance" min="0.1" step="0.1" value="100" disabled />
+          </label>
+
+          <p class="small-text status-line wide" id="tpAutoInfo" style="display:none;">TP auto: -</p>
+
+          <label class="wide" id="stopLossDistanceWrap" style="display:none;">
+            <span id="stopLossDistanceLabel">Manual Stop Loss (pips/points)</span>
+            <input type="number" id="stopLossDistance" min="0.1" step="0.1" value="50" disabled />
+          </label>
+          <p class="small-text status-line wide" id="slAutoInfo" style="display:none;">SL price: -</p>
+
+          <div class="wide button-row">
+            <button id="presetScalp" class="button button-secondary" type="button">Preset Scalping</button>
+            <button id="presetSwing" class="button button-secondary" type="button">Preset Swing</button>
+            <button id="resetForm" class="button button-secondary" type="button">Reset Default</button>
+          </div>
+
+          <div id="fieldErrors" class="field-errors wide"></div>
         </div>
       </article>
-
-      <article class="panel">
-        <h2>3) Trading Costs</h2>
-        <div class="form-grid">
-          <label>
-            Spread (pips/points)
-            <input type="number" id="spread" min="0" step="0.1" value="1.2" />
-          </label>
-
-          <label>
-            Slippage (pips/points)
-            <input type="number" id="slippage" min="0" step="0.1" value="0.3" />
-          </label>
-
-          <label>
-            Commission per Lot (round-turn)
-            <input type="number" id="commission" min="0" step="0.01" value="7" />
-          </label>
-        </div>
-      </article>
-
-      <article class="panel">
-        <h2>4) Currency Conversion</h2>
-        <p class="small-text">If an instrument quote currency is different from your account currency, conversion is calculated automatically. You can also add manual rates.</p>
-
-        <div class="form-grid">
-          <label>
-            Quote -> Account Conversion
-            <input type="text" id="conversionDisplay" readonly value="-" />
-          </label>
-
-          <label>
-            From (CCY)
-            <input type="text" id="rateFrom" maxlength="3" placeholder="USD" />
-          </label>
-
-          <label>
-            To (CCY)
-            <input type="text" id="rateTo" maxlength="3" placeholder="IDR" />
-          </label>
-
-          <label>
-            Value (1 From = ? To)
-            <input type="number" id="rateValue" min="0.0000001" step="0.0000001" placeholder="16500" />
-          </label>
-
-          <button id="addRate" class="button" type="button">Add Manual Rate</button>
-        </div>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>From</th>
-                <th>To</th>
-                <th>Value</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody id="manualRatesBody">
-              <tr><td colspan="4" class="muted">No manual rates yet.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </article>
+      </div>
 
       <article class="panel full">
         <h2>Calculation Results</h2>
         <p class="small-text">All monetary values below are displayed in your selected account currency.</p>
         <div id="alerts" class="alerts"></div>
+        <div id="riskBadge" class="risk-badge">Status: -</div>
         <div class="result-grid" id="resultGrid"></div>
+      </article>
+
+      <article class="panel full">
+        <h2>Recent Calculations</h2>
+        <p class="small-text">Maks 15 history, tampil ringkas, dan scroll.</p>
+        <div class="table-wrap history-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Pair</th>
+                <th>Lot</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="historyBody">
+              <tr><td colspan="4" class="muted">No history yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
       </article>
     </section>
   </main>
@@ -191,3 +213,4 @@
   <script src="script.js"></script>
 </body>
 </html>
+
